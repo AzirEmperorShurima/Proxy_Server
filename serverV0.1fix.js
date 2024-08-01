@@ -4,7 +4,8 @@ const net = require('net');
 const fs = require('fs');
 const readline = require('readline');
 const url = require('url');
-async function loadRules(filePath) {
+
+async function loadRules(filePath, type) {
     const rules = [];
     const fileStream = fs.createReadStream(filePath);
     const rl = readline.createInterface({
@@ -14,8 +15,24 @@ async function loadRules(filePath) {
 
     for await (const line of rl) {
         if (!line || line.startsWith('!') || line.startsWith('@@')) continue;
+
         try {
-            rules.push(new RegExp(line.replace(/\*/g, '.*')));
+            switch (type) {
+                case 'string':
+                    rules.push(line.trim());
+                    break;
+                case 'number':
+                    const number = parseFloat(line.trim());
+                    if (!isNaN(number)) {
+                        rules.push(number);
+                    }
+                    break;
+                case 'RegExp':
+                    rules.push(new RegExp(line.replace(/\*/g, '.*')));
+                    break;
+                default:
+                    throw new Error(`Unsupported type: ${type}`);
+            }
         } catch (e) {
             console.error(`Invalid rule: ${line} - Error: ${e.message}`);
         }
@@ -23,15 +40,22 @@ async function loadRules(filePath) {
 
     return rules;
 }
-let rules = [];
 
+let rules = [];
+let blockedDomains = []
 async function init() {
-    rules = await loadRules('./blockedWebList.txt');
+    rules = await loadRules('./blockedWebList.txt', 'RegExp');
+    blockedDomains = await loadRules('./blockedDomains.txt', 'string');
+    console.log({ 'Blocked Domains:': blockedDomains });
     if (!rules.length) {
         console.error('Failed to load rules');
-    } else {
+    }
+    if (!blockedDomains.length) {
+        console.error('Failed to load domain block rules');
+    }
+    else {
         //console.clear();
-        console.log('Rules loaded successfully');
+        console.log('Rules And Domain loaded successfully');
     }
 }
 
@@ -41,12 +65,12 @@ const proxy = httpProxy.createProxyServer({});
 const blockedIPs = [];
 const blockedURLs = ['/blocked-url', '/forbidden'];
 const blockedMethods = ['POST', 'DELETE'];
-const blockedDomains = ['da88.com', 'qc.x8.games', 'sky88.com', 'dangky789.vin', 'choiwin789.in', 'lp.webda88.vip', 'choiwin79.in', 'vic2.club'];
-
+// const blockedDomains = ['qc.x8.games', 'sky88.com', 'dangky789.vin', 'choiwin789.in', 'lp.webda88.vip', 'choiwin79.in', 'vic2.club'];
 const server = http.createServer((req, res) => {
 
     const clientIP = req.connection.remoteAddress;
-    console.log(`Client IP: ${clientIP}`);
+    console.log(`HTTP Client IP: ${clientIP} `);
+
     try {
         if (blockedIPs.includes(clientIP)) {
             res.writeHead(403, { 'Content-Type': 'text/plain' });
@@ -75,7 +99,6 @@ const server = http.createServer((req, res) => {
         console.log(`Error processing request: ${error.message}`);
     }
 
-
     // Kiểm tra URL yêu cầu với các quy tắc trong easylist
     const requestURL = `http://${req.headers.host}${req.url}`;
     const isBlocked = rules.some(rule => rule.test(requestURL));
@@ -101,7 +124,12 @@ const server = http.createServer((req, res) => {
 
     proxy.web(req, res, { target: target, changeOrigin: true }, (err) => {
         console.error(`Proxy error: ${err}`);
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        if (!res.headersSent) {
+
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+
+        }
+
         res.end('Something went wrong.');
     });
 });
@@ -112,15 +140,6 @@ proxy.on('proxyRes', (proxyRes, req, res) => {
     proxyRes.on('data', chunk => {
         body += chunk;
     });
-    if (contentType.includes('image') || contentType.includes('video')) {
-        // res.writeHead(403, { 'Content-Type': 'text/plain' });
-        // res.end('Content type blocked');
-        // proxyRes.destroy(); // Hủy kết nối phản hồi
-        // return;
-        console.log({
-            'LOG ERR': 'IMG - VIDEO'
-        });
-    }
     proxyRes.on('end', () => {
         const contentType = proxyRes.headers['content-type'];
         if (contentType && contentType.includes('text/html')) {
@@ -128,84 +147,85 @@ proxy.on('proxyRes', (proxyRes, req, res) => {
             const requestURL = url.href;
             const isBlocked = rules.some(rule => rule.test(requestURL));
             if (isBlocked) {
-                res.writeHead(403, { 'Content-Type': 'text/plain' });
+                if (!res.headersSent) {
+                    res.writeHead(403, { 'Content-Type': 'text/plain' });
+                }
                 res.end('Content blocked');
             } else {
-                if (contentType.includes('image') || contentType.includes('video')) {
-                    console.log({
-                        'LOG ERR': 'IMG - VIDEO'
-                    });
+                if (!res.headersSent) {
+                    res.writeHead(proxyRes.statusCode, proxyRes.headers);
                 }
-                res.writeHead(proxyRes.statusCode, proxyRes.headers);
                 res.end(body);
             }
         } else {
-            if (contentType.includes('image') || contentType.includes('video')) {
-                console.log({
-                    'LOG ERR': 'IMG - VIDEO'
-                });
+            if (!res.headersSent) {
+                res.writeHead(proxyRes.statusCode, proxyRes.headers);
             }
-            res.writeHead(proxyRes.statusCode, proxyRes.headers);
             res.end(body);
         }
     });
 });
+
 proxy.on("proxyReq", (proxyReq, req, res) => {
-    console.log(proxyReq.headers)
-})
+    try {
+        // console.log('---------------------------------------------------------');
+        // console.log('proxyReq event triggered');
+        // console.log('proxyReq:', proxyReq);
+        // console.log('---------------------------------------------------------');
+        // console.log('req:', req);
+        // console.log('---------------------------------------------------------');
+        // console.log('res:', res);
+        // console.log('---------------------------------------------------------');
+        if (proxyReq && proxyReq.headers) {
+            console.log('proxyReq.headers:', proxyReq.headers);
+            console.log('---------------------------------------------------------');
+        }
+        if (req.rawHeaders) {
+            console.log('proxyReq.headers:', req.rawHeaders);
+        }
+        // if (res.data) {
+        //     console.log('res.data:', res.data);
+        // }
+        else {
+            console.log('proxyReq.headers is undefined');
+        }
+    } catch (error) {
+        console.error(`Error in proxyReq callback: ${error.message}`);
+    }
+});
+
 
 proxy.on('error', (err, req, res) => {
-    if (err.code === 'ECONNRESET') {
-        console.error(`Proxy ECONNRESET error: ${err.message}`);
-    } else {
-        console.error(`Proxy error: ${err.message}`);
-    }
+    console.error(`Proxy error: ${err.message}`);
     if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'text/plain' });
     }
     res.end('Proxy error: Something went wrong.');
 });
 
-
 server.on('connect', (req, socket, head) => {
     const clientIP = req.socket.remoteAddress;
     console.log(`Client IP: ${clientIP} - Requested URL: ${req.url}`);
 
     const { hostname } = new URL(`https://${req.url}`);
-    const port = req.url.split(':')[1] || 8080
-    const newURL = new URL(`https://${req.url}`);
-
-    // const requestURL = `https://${req.headers.host}${req.url}`;
-    // const isBlocked = rules.some(rule => rule.test(requestURL));
-    // if (isBlocked) {
-    //     res.writeHead(403, { 'Content-Type': 'text/plain' });
-    //     console.error(`Content blocked: ${requestURL} - Client IP: ${clientIP}`);
-    //     res.end('Content blocked');
-    //     return;
-    // }
-    // const arrBuffer = head.buffer;
-    // const uint8Array = new Uint8Array(arrBuffer);
-    // const decoded = new TextDecoder('utf-8')
-    // const decodedString = decoded.decode(uint8Array)
-    // delete req.headers['user-agent'];
-    // req.headers['x-forwarded-host'] = '123.456.789';
-    //   req.headers['x-forwarded-server'] = 'proxy.example.com';
-    // req.headers['x-forwarded-for'] = '123.456.789';
-    // req.headers.location = req.url;
-
-    // console.table([{ "Request Url - IP ": req.url + ' - ' + clientIP, "Port - HostName - PathName": port + " - " + hostname + " - " + pathname }])
-    // console.log(req.headers)
-    if (blockedDomains.some(domain => hostname.includes(domain))) {
-        console.log(`Domain is blocked: ${hostname} - Client IP: ${clientIP} - Requested URL:${req.url}`);
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-        socket.end('Access denied');
-        return;
+    const port = req.url.split(':')[1] || 8080;
+    try {
+        if (blockedDomains.some(domain => hostname.includes(domain))) {
+            console.log(`Domain is blocked: ${hostname} - Client IP: ${clientIP} - Requested URL:${req.url}`);
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            socket.end('Access denied');
+            socket.destroy();
+            return;
+        }
+        if (blockedIPs.includes(clientIP)) {
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            socket.end('Access denied');
+            return;
+        }
+    } catch (error) {
+        console.log(`Error in block function ${error}`)
     }
-    if (blockedIPs.includes(clientIP)) {
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-        socket.end('Access denied');
-        return;
-    }
+
 
     const srvSocket = net.connect(port, hostname, () => {
         socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
@@ -213,39 +233,20 @@ server.on('connect', (req, socket, head) => {
         srvSocket.pipe(socket);
         socket.pipe(srvSocket);
     });
+
     srvSocket.on('timeout', () => {
         console.error(`Socket timeout: ${hostname}:${port}`);
         socket.write('HTTP/1.1 504 Gateway Timeout\r\n\r\n');
         socket.end('Connection timed out.');
         srvSocket.end();
     });
-    srvSocket.on('data', (chunk) => {
-        // const arrBuffer = chunk.buffer;
-        // const uint8Array = new Uint8Array(arrBuffer);
-        // const decoded = new TextDecoder('utf-8')
-        // const decodedString = decoded.decode(uint8Array)
-
-        // console.log(`Received data from ${hostname}:${port}: 
-        //      ${decodedString}
-        //     `);
-        // console.log(!chunk.includes('CONNECT www.google.com'))
-        if (chunk.includes('google')) {
-            console.log('-----------------------------')
-            console.log('CONNECT www.google.com')
-            console.log('-----------------------------')
-        }
-        if (chunk.toString().includes('CONNECT www.google.com')) {
-            const requestString = chunk.toString();
-            const searchQueryMatch = requestString.match(/q=([^&]*)/);
-            if (searchQueryMatch) {
-                const searchQuery = decodeURIComponent(searchQueryMatch[1]);
-                console.log(`Search query: ${searchQuery}`);
-            }
-        }
-    });
 
     srvSocket.on('error', (err) => {
-        console.error(`srvSocket error: ${err.message}`);
+        if (err.code === 'ECONNRESET') {
+            console.error(`srvSocket ECONNRESET error: ${err.message}`);
+        } else {
+            console.error(`srvSocket error: ${err.message}`);
+        }
         socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
         socket.end('Something went wrong.');
     });
@@ -273,6 +274,9 @@ server.on('connect', (req, socket, head) => {
     socket.on('close', () => {
         console.log(`Client socket closed: ${clientIP}`);
     });
+});
+server.on('error', (err) => {
+    console.error(`Server error: ${err.message}`);
 });
 
 //192.168.1.3
