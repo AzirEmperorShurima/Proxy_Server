@@ -43,7 +43,7 @@ async function loadRules(filePath, type) {
 
 let rules = [];
 let blockedDomains = []
-async function init() {
+const init = async () => {
     rules = await loadRules('./blockedWebList.txt', 'RegExp');
     blockedDomains = await loadRules('./blockedDomains.txt', 'string');
     console.log({ 'Blocked Domains:': blockedDomains });
@@ -136,12 +136,19 @@ const server = http.createServer((req, res) => {
 
 proxy.on('proxyRes', (proxyRes, req, res) => {
     let body = '';
-    const contentType = proxyRes.headers['content-type'] || '';
+    const contentType = res.headers['content-type'] || '';
     proxyRes.on('data', chunk => {
         body += chunk;
     });
     proxyRes.on('end', () => {
-        const contentType = proxyRes.headers['content-type'];
+        const contentType = res.headers['content-type'] || proxyRes.headers['content-type']
+        const contentTYPE = proxyRes.headers['content-type'] || res.headers['content-type'] || req.headers['content-type'] || res.rawHeaders['content-type'];
+        const typeRes = ['image', 'video', 'audio', 'img']
+        if (contentTYPE && typeRes.some(type => contentTYPE.includes(type))) {
+            console.log('----------------------------------------------------');
+            console.log(`Has Content-Type: ${contentType}`);
+            console.log('----------------------------------------------------');
+        }
         if (contentType && contentType.includes('text/html')) {
             const url = new URL(req.url, `http://${req.headers.host}`);
             const requestURL = url.href;
@@ -168,14 +175,6 @@ proxy.on('proxyRes', (proxyRes, req, res) => {
 
 proxy.on("proxyReq", (proxyReq, req, res) => {
     try {
-        // console.log('---------------------------------------------------------');
-        // console.log('proxyReq event triggered');
-        // console.log('proxyReq:', proxyReq);
-        // console.log('---------------------------------------------------------');
-        // console.log('req:', req);
-        // console.log('---------------------------------------------------------');
-        // console.log('res:', res);
-        // console.log('---------------------------------------------------------');
         if (proxyReq && proxyReq.headers) {
             console.log('proxyReq.headers:', proxyReq.headers);
             console.log('---------------------------------------------------------');
@@ -183,9 +182,6 @@ proxy.on("proxyReq", (proxyReq, req, res) => {
         if (req.rawHeaders) {
             console.log('proxyReq.headers:', req.rawHeaders);
         }
-        // if (res.data) {
-        //     console.log('res.data:', res.data);
-        // }
         else {
             console.log('proxyReq.headers is undefined');
         }
@@ -220,6 +216,7 @@ server.on('connect', (req, socket, head) => {
         if (blockedIPs.includes(clientIP)) {
             socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
             socket.end('Access denied');
+            socket.destroy();
             return;
         }
     } catch (error) {
@@ -252,7 +249,7 @@ server.on('connect', (req, socket, head) => {
     });
 
     srvSocket.on('close', () => {
-        console.log(`Connection closed: ${clientIP}  Time: ${new Date()}`);
+        console.log(`Connection closed: ${clientIP}  Time: ${new Date().toLocaleString()}`);
     });
 
     socket.on('error', (err) => {
