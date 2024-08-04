@@ -117,6 +117,20 @@ const blockedIPs = config.blockedIPs;
 const blockedURLs = config.blockedURLs;
 const blockedMethods = config.blockedMethods;
 
+const HttpsReq = (hostname, path, method, headers) => {
+    return new Promise((resolve, reject) => {
+        const options = { hostname, port: 443, path, method, headers };
+
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => { resolve({ statusCode: res.statusCode, headers: res.headers, body: data }); });
+        });
+
+        req.on('error', (e) => { reject(e); });
+        req.end();
+    });
+};
 // Xử lý yêu cầu HTTP
 const handleRequest = async (req, res) => {
     const clientIP = req.connection.remoteAddress;
