@@ -4,7 +4,7 @@ const net = require('net');
 const fs = require('fs');
 const readline = require('readline');
 const url = require('url');
-
+const https = require('https');
 async function loadRules(filePath, type) {
     const rules = [];
     const fileStream = fs.createReadStream(filePath);
@@ -223,7 +223,7 @@ server.on('connect', (req, socket, head) => {
         console.log(`Error in block function ${error}`)
     }
 
-
+    
     const srvSocket = net.connect(port, hostname, () => {
         socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
         srvSocket.write(head);

@@ -1,7 +1,7 @@
 const https = require('https');
 
 const options = {
-    hostname: 'vlxx.mobi',
+    hostname: 'google.com',
     port: 443,
     path: '/',
     method: 'GET',
